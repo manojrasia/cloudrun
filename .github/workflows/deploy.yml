@@ -1,0 +1,79 @@
+name: build-and-deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  PREFIX: ${{ vars.RESOURCE_PREFIX }}   # e.g. acme-prod (app-env)
+  REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.RESOURCE_PREFIX }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [storefront, catalog, orders, payments, notifications]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: services/${{ matrix.service }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  migrate:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Run DB migrations and seed (catalog image)
+        run: |
+          gcloud run jobs update "${PREFIX}-migrate" --region "$REGION" \
+            --image "${REGISTRY}/catalog:${GITHUB_SHA}" --command python --args migrate.py
+          gcloud run jobs execute "${PREFIX}-migrate" --region "$REGION" --wait
+
+  deploy:
+    needs: migrate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      # Backends first, storefront last; each rollout is a new revision
+      # deployed with no traffic, smoke-tested on its tagged URL, then promoted.
+      - name: Deploy services
+        run: |
+          for svc in notifications catalog orders payments storefront; do
+            gcloud run deploy "${PREFIX}-${svc}" --region "$REGION" \
+              --image "${REGISTRY}/${svc}:${GITHUB_SHA}" \
+              --no-traffic --tag "sha-${GITHUB_SHA::7}" --quiet
+            gcloud run services update-traffic "${PREFIX}-${svc}" --region "$REGION" \
+              --to-latest --quiet
+          done

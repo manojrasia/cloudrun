@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shop</title>
+  <style>
+    :root { --fg:#1a1a1a; --muted:#666; --line:#e5e5e5; --accent:#1a1a1a; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, sans-serif; color:var(--fg); }
+    header { display:flex; justify-content:space-between; align-items:center; padding:1rem 1.5rem; border-bottom:1px solid var(--line); }
+    header h1 { margin:0; font-size:1.25rem; }
+    main { max-width:60rem; margin:0 auto; padding:1.5rem; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(14rem,1fr)); gap:1rem; }
+    .card { border:1px solid var(--line); border-radius:8px; overflow:hidden; display:flex; flex-direction:column; }
+    .card img { width:100%; aspect-ratio:1; object-fit:cover; background:#f3f3f3; }
+    .card div { padding:.75rem; display:flex; flex-direction:column; gap:.35rem; flex:1; }
+    .card p { margin:0; color:var(--muted); font-size:.875rem; flex:1; }
+    button { padding:.5rem .9rem; border:1px solid var(--fg); background:var(--fg); color:#fff; border-radius:6px; cursor:pointer; font-size:.9rem; }
+    button.ghost { background:#fff; color:var(--fg); }
+    button:disabled { opacity:.5; cursor:default; }
+    #cart { border:1px solid var(--line); border-radius:8px; padding:1rem; margin-top:2rem; }
+    .line { display:flex; justify-content:space-between; gap:1rem; padding:.35rem 0; }
+    input[type=email] { padding:.5rem; border:1px solid var(--line); border-radius:6px; width:100%; max-width:20rem; }
+    #msg { margin:1rem 0; min-height:1.25rem; }
+    .err { color:#b00020; }
+    .ok { color:#1b7a2f; }
+  </style>
+</head>
+<body>
+<header><h1>My Shop</h1><span id="count"></span></header>
+<main>
+  <div id="msg" role="status"></div>
+  <section id="products" class="grid" aria-label="Products"></section>
+
+  <section id="cart" aria-label="Cart">
+    <h2 style="margin-top:0">Cart</h2>
+    <div id="lines">Your cart is empty.</div>
+    <div class="line"><strong>Total</strong><strong id="total">$0.00</strong></div>
+    <div id="checkout-form" style="margin-top:.75rem">
+      <label for="email">Email for your receipt</label><br>
+      <input id="email" type="email" placeholder="name@company.com" autocomplete="email">
+      <button id="to-pay" style="margin-left:.5rem">Continue to payment</button>
+    </div>
+    <form id="pay-form" hidden style="margin-top:1rem">
+      <div id="payment-element"></div>
+      <button id="pay" style="margin-top:1rem">Pay now</button>
+    </form>
+  </section>
+</main>
+
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const money = (c) => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+let products = [];
+let cart = JSON.parse(localStorage.getItem('cart') || '{}');
+
+function say(text, cls) { const m = $('msg'); m.textContent = text; m.className = cls || ''; }
+function save() { localStorage.setItem('cart', JSON.stringify(cart)); render(); }
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || 'Something went wrong. Try again.');
+  return body;
+}
+
+function render() {
+  const lines = Object.entries(cart).map(([id, q]) => {
+    const p = products.find((x) => x.id == id);
+    return p ? { p, q } : null;
+  }).filter(Boolean);
+  $('lines').innerHTML = lines.length ? '' : 'Your cart is empty.';
+  let total = 0;
+  for (const { p, q } of lines) {
+    total += p.price_cents * q;
+    const el = document.createElement('div');
+    el.className = 'line';
+    const label = document.createElement('span');
+    label.textContent = `${p.name} × ${q}`;
+    const right = document.createElement('span');
+    right.textContent = money(p.price_cents * q) + ' ';
+    const rm = document.createElement('button');
+    rm.className = 'ghost'; rm.textContent = 'Remove';
+    rm.onclick = () => { delete cart[p.id]; save(); };
+    right.append(rm);
+    el.append(label, right);
+    $('lines').append(el);
+  }
+  $('total').textContent = money(total);
+  $('count').textContent = lines.length ? `${lines.reduce((n, l) => n + l.q, 0)} in cart` : '';
+}
+
+async function load() {
+  products = await api('/api/products');
+  const root = $('products');
+  for (const p of products) {
+    const card = document.createElement('article');
+    card.className = 'card';
+    const img = document.createElement('img');
+    img.src = p.image_url; img.alt = p.name; img.loading = 'lazy';
+    const body = document.createElement('div');
+    const h = document.createElement('strong'); h.textContent = p.name;
+    const d = document.createElement('p'); d.textContent = p.description;
+    const price = document.createElement('span'); price.textContent = money(p.price_cents);
+    const add = document.createElement('button');
+    add.textContent = p.stock > 0 ? 'Add to cart' : 'Sold out';
+    add.disabled = p.stock <= 0;
+    add.onclick = () => { cart[p.id] = Math.min((cart[p.id] || 0) + 1, 20); save(); };
+    body.append(h, d, price, add);
+    card.append(img, body);
+    root.append(card);
+  }
+  render();
+}
+
+let stripe, elements, orderId;
+
+$('to-pay').onclick = async () => {
+  const email = $('email').value.trim();
+  const items = Object.entries(cart).map(([id, q]) => ({ product_id: Number(id), quantity: q }));
+  if (!items.length) return say('Add something to your cart first.', 'err');
+  if (!email) return say('Enter your email address.', 'err');
+  try {
+    $('to-pay').disabled = true;
+    say('Creating your order…');
+    const order = await api('/api/orders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, items }) });
+    orderId = order.order_id;
+    const intent = await api('/api/payments/intent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ order_id: orderId }) });
+    if (!intent.publishable_key) throw new Error('Payments are not configured yet.');
+    stripe = Stripe(intent.publishable_key);
+    elements = stripe.elements({ clientSecret: intent.client_secret });
+    elements.create('payment').mount('#payment-element');
+    $('pay-form').hidden = false;
+    $('checkout-form').hidden = true;
+    say('');
+  } catch (e) { say(e.message, 'err'); $('to-pay').disabled = false; }
+};
+
+$('pay-form').onsubmit = async (ev) => {
+  ev.preventDefault();
+  $('pay').disabled = true;
+  const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: `${location.origin}/?order=${orderId}` } });
+  if (error) { say(error.message, 'err'); $('pay').disabled = false; }
+};
+
+async function checkReturn() {
+  const id = new URLSearchParams(location.search).get('order');
+  if (!id) return;
+  say('Confirming your payment…');
+  for (let i = 0; i < 10; i++) {          // the webhook can land a moment after the redirect
+    const o = await api(`/api/orders/${id}`).catch(() => null);
+    if (o && o.status === 'paid') {
+      cart = {}; save();
+      return say(`Thank you! Order ${id.slice(0, 8)} is confirmed. A receipt is on its way.`, 'ok');
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  say('Your payment is processing. We will email you when it is confirmed.');
+}
+
+load().then(checkReturn).catch((e) => say(e.message, 'err'));
+</script>
+</body>
+</html>
