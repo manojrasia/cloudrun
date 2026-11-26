@@ -148,11 +148,11 @@ Finally, put your `manoj` key into `stripe_publishable_key` in `terraform.tfvars
 Push the contents of this folder to your repo's `main` branch. The `.github` folder must sit at the repo root. Then set the variables the deploy workflow reads:
 
 ```bash
-gh variable set GCP_PROJECT_ID  --body "YOUR_PROJECT_ID"
-gh variable set GCP_REGION      --body "us-central1"
-gh variable set RESOURCE_PREFIX --body "<prefix>"
-gh variable set WIF_PROVIDER    --body "$(terraform output -raw wif_provider)"
-gh variable set DEPLOYER_SA     --body "$(terraform output -raw deployer_service_account)"
+gh variable set GCP_PROJECT_ID  -R manojrasia/cloudrun --body "boreal-conquest-421512"
+gh variable set GCP_REGION      -R manojrasia/cloudrun --body "us-central1"
+gh variable set RESOURCE_PREFIX -R manojrasia/cloudrun --body "shop-prod"
+gh variable set WIF_PROVIDER    -R manojrasia/cloudrun --body "$(terraform output -raw wif_provider)"
+gh variable set DEPLOYER_SA     -R manojrasia/cloudrun --body "$(terraform output -raw deployer_service_account)"
 ```
 
 You can also set them in the repo under Settings, Secrets and variables, Actions, Variables. Only the `main` branch of the exact `owner/name` repo from step 3 can deploy; GitHub authenticates to Google with short-lived tokens, so there are no keys to store.
@@ -164,14 +164,16 @@ Push to `main`, or run the workflow manually from the Actions tab. It builds the
 ## 9. Upload product images
 
 ```bash
-gcloud storage cp ./your-images/*.jpg gs://$(terraform output -raw images_bucket)/images/
+gcloud storage cp ./images/*.jpg gs://boreal-conquest-421512-shop-prod-images/images/
 ```
 
 The sample products expect `tee.jpg`, `mug.jpg`, `tote.jpg`, `cap.jpg`, `notebook.jpg` and `stickers.jpg`.
 
 ## 10. Test it
 
-1. Open your domain and check that the products appear.
+1. Open your domain and check that the products appear.  
+https://136-81-131-55.sslip.io/
+
 2. Add something to the cart and pay with Stripe's test card `4242 4242 4242 4242`, any future expiry and any 3-digit CVC.
 3. Check the logs:
 
