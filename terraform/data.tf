@@ -34,7 +34,7 @@ resource "google_sql_database_instance" "pg" {
   name                = "${local.prefix}-pg"
   region              = var.region
   database_version    = "POSTGRES_16"
-  deletion_protection = local.is_prod
+  deletion_protection = false
 
   settings {
     tier                        = var.db_tier
@@ -42,8 +42,7 @@ resource "google_sql_database_instance" "pg" {
     availability_type           = local.is_prod ? "REGIONAL" : "ZONAL"
     disk_type                   = "PD_SSD"
     disk_autoresize             = true
-    deletion_protection_enabled = local.is_prod
-
+    deletion_protection_enabled = false
     ip_configuration {
       ipv4_enabled    = false
       private_network = google_compute_network.vpc.id
@@ -131,7 +130,7 @@ resource "google_storage_bucket" "images" {
   name                        = "${var.project_id}-${local.prefix}-images"
   location                    = var.region
   uniform_bucket_level_access = true
-  force_destroy               = !local.is_prod
+  force_destroy               = true
   public_access_prevention    = "inherited"
 
   versioning {

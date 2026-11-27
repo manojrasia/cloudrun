@@ -84,7 +84,7 @@ resource "google_cloud_run_v2_service" "svc" {
   name                = "${local.prefix}-${each.key}"
   location            = var.region
   ingress             = each.value.ingress
-  deletion_protection = local.is_prod
+  deletion_protection = false
   launch_stage        = "GA"
 
   template {
@@ -188,7 +188,7 @@ resource "google_cloud_run_v2_service" "svc" {
 resource "google_cloud_run_v2_job" "migrate" {
   name                = "${local.prefix}-migrate"
   location            = var.region
-  deletion_protection = local.is_prod
+  deletion_protection = false
 
   template {
     template {
