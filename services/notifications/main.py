@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+import urllib.error
 import urllib.request
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -25,22 +26,30 @@ SHOP = os.environ.get("SHOP_NAME", "Shop")
 
 
 def send_email(to: str, subject: str, text: str):
-    """SendGrid v3 API. With the placeholder key, only logs, so the pipeline works before email is set up."""
+    """Brevo transactional API (v3). With the placeholder key, only logs, so the pipeline works before email is set up."""
     if API_KEY == "REPLACE_ME":
         log.warning(f"EMAIL_API_KEY not configured; would send '{subject}' to a customer")
         return
     body = json.dumps({
-        "personalizations": [{"to": [{"email": to}]}],
-        "from": {"email": FROM, "name": SHOP},
+        "sender": {"email": FROM, "name": SHOP},
+        "to": [{"email": to}],
         "subject": subject,
-        "content": [{"type": "text/plain", "value": text}],
+        "textContent": text,
     }).encode()
     req = urllib.request.Request(
-        "https://api.sendgrid.com/v3/mail/send",
+        "https://api.brevo.com/v3/smtp/email",
         data=body,
-        headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+        headers={
+            "api-key": API_KEY.strip(),
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
     )
-    urllib.request.urlopen(req, timeout=10).read()
+    try:
+        urllib.request.urlopen(req, timeout=10).read()
+    except urllib.error.HTTPError as e:
+        log.error(f"brevo send failed status={e.code} body={e.read().decode(errors='replace')[:500]}")
+        raise
 
 
 @app.get("/healthz")
