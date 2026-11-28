@@ -44,12 +44,6 @@ variable "enable_cel_rules" {
 
 locals {
   armor_cel_rules = {
-    # Stripe webhook bodies can trip generic WAF rules; the endpoint authenticates by signature instead.
-    500 = {
-      action      = "allow"
-      description = "Stripe webhook"
-      expression  = "request.path == '/api/payments/webhook'"
-    }
     1000 = {
       action      = "deny(403)"
       description = "SQL injection"
@@ -80,7 +74,7 @@ resource "google_compute_security_policy" "edge" {
     }
   }
 
-  # Stripe webhook allow (500) and WAF rules (1000-1020); only created when the quota exists.
+  # WAF rules (1000-1020); only created when the quota exists.
   dynamic "rule" {
     for_each = var.enable_cel_rules ? local.armor_cel_rules : {}
     # Only meaningful when enable_cloud_armor = true (the whole policy is skipped otherwise).

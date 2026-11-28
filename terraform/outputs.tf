@@ -25,8 +25,3 @@ output "images_bucket" {
   description = "Upload product images under images/ in this bucket; they are served at https://<domain>/images/..."
   value       = google_storage_bucket.images.name
 }
-
-output "stripe_webhook_url" {
-  description = "Register this endpoint in the Stripe dashboard (event: payment_intent.succeeded)."
-  value       = "https://${var.domain}/api/payments/webhook"
-}

@@ -21,7 +21,8 @@
     button:disabled { opacity:.5; cursor:default; }
     #cart { border:1px solid var(--line); border-radius:8px; padding:1rem; margin-top:2rem; }
     .line { display:flex; justify-content:space-between; gap:1rem; padding:.35rem 0; }
-    input[type=email] { padding:.5rem; border:1px solid var(--line); border-radius:6px; width:100%; max-width:20rem; }
+    .pay-grid { display:grid; grid-template-columns:2fr 1fr 1fr; gap:.5rem; max-width:24rem; }
+    .pay-grid input, input[type=email] { padding:.5rem; border:1px solid var(--line); border-radius:6px; width:100%; max-width:20rem; }
     #msg { margin:1rem 0; min-height:1.25rem; }
     .err { color:#b00020; }
     .ok { color:#1b7a2f; }
@@ -43,13 +44,17 @@
       <button id="to-pay" style="margin-left:.5rem">Continue to payment</button>
     </div>
     <form id="pay-form" hidden style="margin-top:1rem">
-      <div id="payment-element"></div>
+      <p style="margin:0 0 .5rem;color:var(--muted);font-size:.875rem">Demo checkout: no real payment. Use test card <code>4242 4242 4242 4242</code>, any future expiry, any 3-digit CVC. <code>4000 0000 0000 0002</code> is declined.</p>
+      <div class="pay-grid">
+        <input id="card" inputmode="numeric" autocomplete="cc-number" placeholder="Card number" value="4242 4242 4242 4242" maxlength="23" required>
+        <input id="exp" autocomplete="cc-exp" placeholder="MM/YY" value="12/30" maxlength="5" required>
+        <input id="cvc" inputmode="numeric" autocomplete="cc-csc" placeholder="CVC" value="123" maxlength="4" required>
+      </div>
       <button id="pay" style="margin-top:1rem">Pay now</button>
     </form>
   </section>
 </main>
 
-<script src="https://js.stripe.com/v3/"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const money = (c) => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -115,7 +120,7 @@ async function load() {
   render();
 }
 
-let stripe, elements, orderId;
+let orderId, paymentId;
 
 $('to-pay').onclick = async () => {
   const email = $('email').value.trim();
@@ -128,10 +133,7 @@ $('to-pay').onclick = async () => {
     const order = await api('/api/orders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, items }) });
     orderId = order.order_id;
     const intent = await api('/api/payments/intent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ order_id: orderId }) });
-    if (!intent.publishable_key) throw new Error('Payments are not configured yet.');
-    stripe = Stripe(intent.publishable_key);
-    elements = stripe.elements({ clientSecret: intent.client_secret });
-    elements.create('payment').mount('#payment-element');
+    paymentId = intent.payment_id;
     $('pay-form').hidden = false;
     $('checkout-form').hidden = true;
     say('');
@@ -141,15 +143,19 @@ $('to-pay').onclick = async () => {
 $('pay-form').onsubmit = async (ev) => {
   ev.preventDefault();
   $('pay').disabled = true;
-  const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: `${location.origin}/?order=${orderId}` } });
-  if (error) { say(error.message, 'err'); $('pay').disabled = false; }
+  try {
+    say('Processing payment…');
+    await api('/api/payments/confirm', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId, payment_id: paymentId, card_number: $('card').value }) });
+    location.href = `${location.origin}/?order=${orderId}`;
+  } catch (e) { say(e.message, 'err'); $('pay').disabled = false; }
 };
 
 async function checkReturn() {
   const id = new URLSearchParams(location.search).get('order');
   if (!id) return;
   say('Confirming your payment…');
-  for (let i = 0; i < 10; i++) {          // the webhook can land a moment after the redirect
+  for (let i = 0; i < 10; i++) {          // allow a moment for the order to show as paid
     const o = await api(`/api/orders/${id}`).catch(() => null);
     if (o && o.status === 'paid') {
       cart = {}; save();

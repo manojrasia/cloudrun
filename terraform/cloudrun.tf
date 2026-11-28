@@ -50,13 +50,9 @@ locals {
       timeout     = "60s"
       vpc         = true
       env = merge(local.db_env, {
-        PUBSUB_TOPIC            = google_pubsub_topic.events.id
-        STRIPE_PUBLISHABLE_KEY  = var.stripe_publishable_key
+        PUBSUB_TOPIC = google_pubsub_topic.events.id
       })
-      secret_env = merge(local.db_secret, {
-        STRIPE_SECRET_KEY     = google_secret_manager_secret.app["stripe-secret-key"].secret_id
-        STRIPE_WEBHOOK_SECRET = google_secret_manager_secret.app["stripe-webhook-secret"].secret_id
-      })
+      secret_env = local.db_secret
     }
     notifications = {
       # Only Pub/Sub can reach it. No VPC egress: it calls the email provider over the internet.

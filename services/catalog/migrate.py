@@ -25,7 +25,7 @@ SCHEMA = [
                                  CHECK (status IN ('pending', 'paid', 'cancelled')),
         total_cents              INTEGER NOT NULL,
         currency                 TEXT NOT NULL,
-        stripe_payment_intent_id TEXT,
+        payment_ref              TEXT,
         created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
         paid_at                  TIMESTAMPTZ
     )
@@ -39,6 +39,8 @@ SCHEMA = [
         PRIMARY KEY (order_id, product_id)
     )
     """,
+    # Databases created before the dummy payment provider had a differently named payment column.
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_ref TEXT",
     "CREATE INDEX IF NOT EXISTS orders_status_created ON orders (status, created_at)",
 ]
 
