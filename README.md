@@ -226,3 +226,134 @@ Run `scripts/destroy.sh` (or `terraform destroy` from the `terraform` folder). I
 - Tax, shipping and refunds are not implemented.
 - Payments are a dummy: anyone can pay with a test card, so no real revenue can be collected until a real provider is added.
 - Single region. For disaster recovery, replicate the stack in a second region and add a Cloud SQL cross-region replica.
+
+
+Troubleshooting----------------->
+
+WORKLOAD IDENTITY FEDERATION (WIF) - 409 ERROR FIX
+
+PROJECT: boreal-conquest-421512
+POOL:    shop-prod-gh
+PROVIDER: github
+
+------------------------------------------------------------
+ISSUE
+------------------------------------------------------------
+terraform apply failed with:
+  Error 409: Requested entity already exists
+  (google_iam_workload_identity_pool.github)
+
+Cause:
+- A pool with the ID "shop-prod-gh" had been created earlier and then deleted.
+- GCP soft-deletes pools and providers and reserves the ID for 30 days, so
+  Terraform could not create a new pool with the same ID.
+- The deleted pool was not in Terraform state, so "terraform destroy -target"
+  did nothing and should not be used here.
+- "providers list" returned NOT_FOUND because a deleted pool hides its
+  providers.
+
+------------------------------------------------------------
+FIX
+------------------------------------------------------------
+1. Find the deleted pool (include soft-deleted ones):
+
+   gcloud iam workload-identity-pools list \
+     --project=boreal-conquest-421512 --location=global --show-deleted
+
+   Result: shop-prod-gh was in state DELETED.
+
+2. Undelete the pool:
+
+   gcloud iam workload-identity-pools undelete shop-prod-gh \
+     --project=boreal-conquest-421512 --location=global
+
+3. List providers (include soft-deleted ones):
+
+   gcloud iam workload-identity-pools providers list \
+     --workload-identity-pool=shop-prod-gh --location=global \
+     --project=boreal-conquest-421512 --show-deleted \
+     --format="table(name.basename(), state)"
+
+   Result: provider "github" was in state DELETED.
+
+4. Undelete the provider:
+
+   gcloud iam workload-identity-pools providers undelete github \
+     --workload-identity-pool=shop-prod-gh --location=global \
+     --project=boreal-conquest-421512
+
+5. Confirm both are ACTIVE (each should print ACTIVE):
+
+   gcloud iam workload-identity-pools describe shop-prod-gh \
+     --project=boreal-conquest-421512 --location=global \
+     --format="value(state)"
+
+   gcloud iam workload-identity-pools providers describe github \
+     --workload-identity-pool=shop-prod-gh --location=global \
+     --project=boreal-conquest-421512 --format="value(state)"
+
+6. Import both into Terraform state:
+
+   terraform import google_iam_workload_identity_pool.github \
+     projects/boreal-conquest-421512/locations/global/workloadIdentityPools/shop-prod-gh
+
+   terraform import google_iam_workload_identity_pool_provider.github \
+     projects/boreal-conquest-421512/locations/global/workloadIdentityPools/shop-prod-gh/providers/github
+
+7. Plan and apply only the resources in cicd.tf:
+
+   terraform plan -out tfplan \
+     -target=google_iam_workload_identity_pool.github \
+     -target=google_iam_workload_identity_pool_provider.github \
+     -target=google_service_account_iam_member.wif \
+     -target=google_artifact_registry_repository_iam_member.deployer_push \
+     -target=google_project_iam_member.deployer_run \
+     -target=google_service_account_iam_member.deployer_actas
+
+   terraform apply tfplan
+
+   Expected: pool and provider show no changes (or a small provider update);
+   the wif, deployer_push and deployer_actas bindings are created.
+   Note: -target also pulls in resources these depend on (deployer SA,
+   runtime SAs, Artifact Registry repo, APIs) if they are not yet in state.
+
+8. Run a plain "terraform plan" to confirm there is no remaining drift.
+
+9. GitHub Actions setup:
+   - Get values: terraform output wif_provider
+                 terraform output deployer_sa_email
+   - Store them as repo variables WIF_PROVIDER and DEPLOYER_SA.
+   - Workflow needs:
+       permissions:
+         id-token: write
+         contents: read
+   - Auth only works for the configured repo on refs/heads/main
+     (pull requests and tags are rejected by the attribute condition).
+
+------------------------------------------------------------
+USEFUL CHECK COMMANDS
+------------------------------------------------------------
+# Who can impersonate the deployer SA
+gcloud iam service-accounts get-iam-policy \
+  shop-prod-deployer@boreal-conquest-421512.iam.gserviceaccount.com \
+  --project=boreal-conquest-421512
+
+# Deployer's Artifact Registry access
+gcloud artifacts repositories get-iam-policy shop-prod-images \
+  --project=boreal-conquest-421512 --location=us-central1
+
+# Deployer's project-level roles
+gcloud projects get-iam-policy boreal-conquest-421512 \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:serviceAccount:shop-prod-deployer@boreal-conquest-421512.iam.gserviceaccount.com" \
+  --format="table(bindings.role)"
+
+------------------------------------------------------------
+HOW TO AVOID THIS NEXT TIME
+------------------------------------------------------------
+- Do not delete pools or providers you plan to reuse. The ID stays reserved
+  for 30 days after deletion.
+- On a 409, run "list --show-deleted" first. The pool is either active (import
+  it) or deleted (undelete it, then import it).
+- If you must recreate one, use a new ID (for example shop-prod-gh2).
+- Do not run "terraform destroy -target" on resources that are not in state.
