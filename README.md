@@ -652,3 +652,67 @@ Brevo's **Authorized IPs** feature rejects API calls from addresses that are not
 5. **Secrets read at startup need a new revision.** Redeploy or update the service after changing a secret.
 6. **Never write real keys into notes, tickets or chat.** Treat anything pasted as exposed and rotate it.
 
+---
+
+# Troubleshooting guide C: Terraform state lock error (`Error acquiring the state lock`)
+
+Date seen: 2026-11-28 · State bucket: `gs://boreal-conquest-421512-tfstate` · State prefix: `acme/prod`
+
+## Symptom
+
+Running `./destroy.sh` (or `terraform plan` / `apply`) failed with:
+
+```
+Error: Error acquiring the state lock
+
+Error message: writing "gs://boreal-conquest-421512-tfstate/acme/prod/default.tflock" failed:
+googleapi: Error 412: At least one of the pre-conditions you specified did not hold., conditionNotMet
+Lock Info:
+  ID:        1795882491971436
+  Path:      gs://boreal-conquest-421512-tfstate/acme/prod/default.tflock
+  Operation: OperationTypeApply
+  Who:       DELL\manoj@DELL
+  Version:   1.17.0
+  Created:   2026-11-28 16:14:50 +0000 UTC
+```
+
+## Cause
+
+Terraform writes a lock file (`default.tflock`) into the state bucket when a run starts, and deletes it when the run ends. The lock stays behind if the run does not end normally. The lock info shows that an earlier `terraform apply` (from `DELL\manoj@DELL`, started at 16:14 UTC) never released it. Common reasons:
+
+- Ctrl-C pressed twice, or the terminal or laptop was closed during the run.
+- The apply crashed, or the network dropped. The first apply takes 15 to 25 minutes, mostly waiting for the database, so it is easy to interrupt.
+- That apply is still running in another terminal window.
+
+## Fix
+
+1. **Make sure no other Terraform run is active.** Check for a `terraform` process (Task Manager on Windows, or other terminals), and check that no teammate is applying. Releasing the lock during a live run can corrupt the state.
+2. **Release the lock** from the `terraform` folder, using the ID from the error:
+
+   ```bash
+   terraform force-unlock 1795882491971436
+   ```
+
+   Type `yes` when asked.
+3. **Check for drift.** The interrupted apply may have stopped halfway, so run this before anything else:
+
+   ```bash
+   terraform plan
+   ```
+
+   It shows whether the state matches what is actually deployed.
+4. **If `force-unlock` fails**, delete the lock file directly:
+
+   ```bash
+   gcloud storage rm gs://boreal-conquest-421512-tfstate/acme/prod/default.tflock
+   ```
+
+## Before running `destroy.sh`
+
+The environment is `prod`. Destroy deletes the load balancer, the Cloud SQL database and every service, including all orders. Prod has deletion protection, so destroy fails unless that is turned off first. If you only needed to clear the lock, stop after step 3. The state bucket is not removed by `destroy.sh`.
+
+## How to avoid this next time
+
+- Let `terraform apply` finish. If you must stop it, press Ctrl-C **once** and wait, so Terraform can release the lock.
+- Run Terraform in one terminal at a time.
+- Use `terraform force-unlock` only after confirming nothing else is running.
