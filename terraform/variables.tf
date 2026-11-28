@@ -52,12 +52,6 @@ variable "bootstrap_image" {
   description = "Placeholder image for first apply. CI/CD replaces it; Terraform ignores image drift."
 }
 
-variable "stripe_publishable_key" {
-  type        = string
-  default     = ""
-  description = "Stripe publishable key (pk_...). Not secret. The secret key and webhook secret go in Secret Manager."
-}
-
 variable "email_from" {
   type        = string
   default     = "orders@example.com"

@@ -107,7 +107,7 @@ resource "google_secret_manager_secret_version" "db_password" {
 # Third-party secrets: Terraform creates an empty placeholder. Add the real value as a new
 # secret version (see README); Cloud Run reads "latest" and Terraform never overwrites it.
 resource "google_secret_manager_secret" "app" {
-  for_each  = toset(["stripe-secret-key", "stripe-webhook-secret", "email-api-key"])
+  for_each  = toset(["email-api-key"])
   secret_id = "${local.prefix}-${each.key}"
   replication {
     auto {}

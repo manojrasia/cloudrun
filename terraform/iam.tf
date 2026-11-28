@@ -27,7 +27,7 @@ locals {
   secret_grants = {
     catalog       = ["db-password"]
     orders        = ["db-password"]
-    payments      = ["db-password", "stripe-secret-key", "stripe-webhook-secret"]
+    payments      = ["db-password"]
     notifications = ["email-api-key"]
   }
 
