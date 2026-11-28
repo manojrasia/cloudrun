@@ -74,8 +74,8 @@ The last command lets Terraform turn on all the other APIs itself.
 Script: `scripts/02-state-bucket.sh`
 
 ```bash
-gcloud storage buckets create gs://YOUR_PROJECT_ID-tfstate --location=us-central1 --uniform-bucket-level-access
-gcloud storage buckets update gs://YOUR_PROJECT_ID-tfstate --versioning
+gcloud storage buckets create gs://boreal-conquest-421512-tfstate --location=us-central1 --uniform-bucket-level-access
+gcloud storage buckets update gs://boreal-conquest-421512-tfstate --versioning
 ```
 
 ## 3. Fill in your settings
