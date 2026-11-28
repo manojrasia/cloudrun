@@ -652,5 +652,3 @@ Brevo's **Authorized IPs** feature rejects API calls from addresses that are not
 5. **Secrets read at startup need a new revision.** Redeploy or update the service after changing a secret.
 6. **Never write real keys into notes, tickets or chat.** Treat anything pasted as exposed and rotate it.
 
-
-echo -n "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" | gcloud secrets versions add shop-prod-email-api-key --data-file=-
