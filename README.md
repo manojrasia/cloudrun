@@ -357,3 +357,7 @@ HOW TO AVOID THIS NEXT TIME
   it) or deleted (undelete it, then import it).
 - If you must recreate one, use a new ID (for example shop-prod-gh2).
 - Do not run "terraform destroy -target" on resources that are not in state.
+
+-----------------
+not getting mail update
+echo -n "manoj" | gcloud secrets versions add shop-prod-email-api-key --data-file=-
